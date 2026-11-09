@@ -12,6 +12,8 @@ history is a pandas DataFrame with one row per iteration and columns
 iter, rel_change, abs_change, rel_residual, time_s. All three criteria are
 logged at every iteration. history.attrs["converged"] (bool) and
 history.attrs["reason"] (str) tell why the loop stopped.
+Optional x_ref (a reference solution) adds the column
+rel_error = ||x - x_ref|| / ||x_ref|| (true error, for validation only).
 """
 
 import time
@@ -23,7 +25,7 @@ from scipy.sparse.linalg import spsolve_triangular
 CRITERIA = ("residual", "rel_change", "abs_change")
 
 
-def _iterate(update, A, b, x0, tol, max_iter, criterion, norm):
+def _iterate(update, A, b, x0, tol, max_iter, criterion, norm, x_ref=None):
     """
     Generic stationary iteration x^(k+1) = update(x^(k)) with logging and
     stopping criteria (Festa's definitions):
@@ -40,6 +42,7 @@ def _iterate(update, A, b, x0, tol, max_iter, criterion, norm):
     :param max_iter: maximum number of iterations
     :param criterion: "residual" | "rel_change" | "abs_change"
     :param norm: order of the vector norm (np.inf, 2, 1)
+    :param x_ref: optional reference solution, logs the true relative error
     :return x: last iterate
     :return history: pandas DataFrame, see module docstring
     """
@@ -63,6 +66,8 @@ def _iterate(update, A, b, x0, tol, max_iter, criterion, norm):
                "abs_change": abs_change,
                "rel_residual": np.linalg.norm(b - A @ x_new, norm) / norm_b,
                "time_s": iter_time}
+        if x_ref is not None:
+            row["rel_error"] = np.linalg.norm(x_new - x_ref, norm) / np.linalg.norm(x_ref, norm)
         rows.append(row)
         x = x_new
 
@@ -102,7 +107,7 @@ def _jacobi_sweep(indptr, indices, data, diag, b, x, x_new):
     return x_new
 
 
-def jacobi(A, b, x0=None, tol=1e-8, max_iter=1000, criterion="residual", mode="matrix", norm=np.inf):
+def jacobi(A, b, x0=None, tol=1e-8, max_iter=1000, criterion="residual", mode="matrix", norm=np.inf, x_ref=None):
     """
     Jacobi method. With the splitting A = D - (D - A), D = diag(A):
         x^(k+1) = D^{-1} (b - (A - D) x^(k))
@@ -117,6 +122,7 @@ def jacobi(A, b, x0=None, tol=1e-8, max_iter=1000, criterion="residual", mode="m
     :param criterion: "residual" | "rel_change" | "abs_change"
     :param mode: "matrix" (sparse mat-vec) | "loop" (element by element, slow)
     :param norm: order of the vector norm used by the criteria
+    :param x_ref: optional reference solution, adds the column rel_error to history
     :return x: approximate solution
     :return history: pandas DataFrame (iter, rel_change, abs_change,
         rel_residual, time_s), with attrs "converged" and "reason"
@@ -139,7 +145,7 @@ def jacobi(A, b, x0=None, tol=1e-8, max_iter=1000, criterion="residual", mode="m
     else:
         raise ValueError('mode must be "matrix" or "loop"')
 
-    return _iterate(update, A, b, x0, tol, max_iter, criterion, norm)
+    return _iterate(update, A, b, x0, tol, max_iter, criterion, norm, x_ref)
 
 
 def _gauss_seidel_sweep(indptr, indices, data, diag, b, x):
@@ -167,7 +173,7 @@ def _gauss_seidel_sweep(indptr, indices, data, diag, b, x):
     return x
 
 
-def gauss_seidel(A, b, x0=None, tol=1e-8, max_iter=1000, criterion="residual", mode="matrix", norm=np.inf):
+def gauss_seidel(A, b, x0=None, tol=1e-8, max_iter=1000, criterion="residual", mode="matrix", norm=np.inf, x_ref=None):
     """
     Gauss-Seidel method. With A = L + D + U (strictly lower, diagonal,
     strictly upper part):
@@ -185,6 +191,7 @@ def gauss_seidel(A, b, x0=None, tol=1e-8, max_iter=1000, criterion="residual", m
     :param criterion: "residual" | "rel_change" | "abs_change"
     :param mode: "matrix" (sparse triangular solve) | "loop" (element by element, slow)
     :param norm: order of the vector norm used by the criteria
+    :param x_ref: optional reference solution, adds the column rel_error to history
     :return x: approximate solution
     :return history: pandas DataFrame (iter, rel_change, abs_change,
         rel_residual, time_s), with attrs "converged" and "reason"
@@ -208,4 +215,4 @@ def gauss_seidel(A, b, x0=None, tol=1e-8, max_iter=1000, criterion="residual", m
     else:
         raise ValueError('mode must be "matrix" or "loop"')
 
-    return _iterate(update, A, b, x0, tol, max_iter, criterion, norm)
+    return _iterate(update, A, b, x0, tol, max_iter, criterion, norm, x_ref)
