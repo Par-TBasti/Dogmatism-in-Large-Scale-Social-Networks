@@ -7,6 +7,7 @@ Functions only, no top-level execution.
 Interface (shared with Member 3):
     x, history = jacobi(A, b, x0=None, tol=1e-8, max_iter=1000,
                         criterion="residual", mode="matrix", norm=np.inf)
+    x, history = gauss_seidel(A, b, ...same arguments...)
 history is a pandas DataFrame with one row per iteration and columns
 iter, rel_change, abs_change, rel_residual, time_s. All three criteria are
 logged at every iteration. history.attrs["converged"] (bool) and
@@ -17,6 +18,7 @@ import time
 import numpy as np
 import pandas as pd
 import scipy.sparse as sp
+from scipy.sparse.linalg import spsolve_triangular
 
 CRITERIA = ("residual", "rel_change", "abs_change")
 
@@ -133,6 +135,75 @@ def jacobi(A, b, x0=None, tol=1e-8, max_iter=1000, criterion="residual", mode="m
     elif mode == "loop":
         def update(x):
             return _jacobi_sweep(A.indptr, A.indices, A.data, diag, b, x, np.empty_like(x))
+
+    else:
+        raise ValueError('mode must be "matrix" or "loop"')
+
+    return _iterate(update, A, b, x0, tol, max_iter, criterion, norm)
+
+
+def _gauss_seidel_sweep(indptr, indices, data, diag, b, x):
+    """
+    One Gauss-Seidel sweep, element by element on the CSR arrays of A, IN PLACE:
+        x_i = (b_i - sum_{j < i} a_ij x_j^new - sum_{j > i} a_ij x_j^old) / a_ii
+    Since x is overwritten row by row, when row i is processed x_j already
+    holds the new value for j < i and the old value for j > i.
+    Plain Python on numpy arrays, so it can also be compiled with numba.njit.
+
+    :param indptr, indices, data: CSR arrays of A
+    :param diag: diagonal of A
+    :param b: right-hand side
+    :param x: current iterate, overwritten with the new one
+    :return x: the new iterate
+    """
+    n = len(b)
+    for i in range(n):
+        sigma = 0.0
+        for k in range(indptr[i], indptr[i + 1]):
+            j = indices[k]
+            if j != i:
+                sigma += data[k] * x[j]
+        x[i] = (b[i] - sigma) / diag[i]
+    return x
+
+
+def gauss_seidel(A, b, x0=None, tol=1e-8, max_iter=1000, criterion="residual", mode="matrix", norm=np.inf):
+    """
+    Gauss-Seidel method. With A = L + D + U (strictly lower, diagonal,
+    strictly upper part):
+        (D + L) x^(k+1) = b - U x^(k)
+    i.e. iteration matrix B_GS = -(D + L)^{-1} U. For A = I - alpha W this is
+    (I - alpha W_L) x^(k+1) = b + alpha W_U x^(k). Converges for any x0 if A is
+    strictly diagonally dominant. Unlike Jacobi, the result of each sweep
+    depends on the ordering of the unknowns.
+
+    :param A: scipy sparse matrix (converted to CSR), nonzero diagonal
+    :param b: 1D numpy array
+    :param x0: initial guess, default zeros
+    :param tol: tolerance of the stopping criterion
+    :param max_iter: maximum number of iterations
+    :param criterion: "residual" | "rel_change" | "abs_change"
+    :param mode: "matrix" (sparse triangular solve) | "loop" (element by element, slow)
+    :param norm: order of the vector norm used by the criteria
+    :return x: approximate solution
+    :return history: pandas DataFrame (iter, rel_change, abs_change,
+        rel_residual, time_s), with attrs "converged" and "reason"
+    """
+    A = sp.csr_matrix(A)
+    diag = A.diagonal()
+    if np.any(diag == 0):
+        raise ValueError("Gauss-Seidel needs a nonzero diagonal")
+
+    if mode == "matrix":
+        DL = sp.tril(A, k=0, format="csr")  # D + L
+        U = sp.triu(A, k=1, format="csr")   # strictly upper part
+
+        def update(x):
+            return spsolve_triangular(DL, b - U @ x, lower=True)
+
+    elif mode == "loop":
+        def update(x):
+            return _gauss_seidel_sweep(A.indptr, A.indices, A.data, diag, b, x.copy())
 
     else:
         raise ValueError('mode must be "matrix" or "loop"')
