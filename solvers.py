@@ -14,6 +14,18 @@ logged at every iteration. history.attrs["converged"] (bool) and
 history.attrs["reason"] (str) tell why the loop stopped.
 Optional x_ref (a reference solution) adds the column
 rel_error = ||x - x_ref|| / ||x_ref|| (true error, for validation only).
+
+Example (from the repository root):
+    from hw3_system import build_system, initial_opinions
+    from solvers import jacobi
+    alpha = 0.85
+    A, W = build_system(alpha)
+    b = (1 - alpha) * initial_opinions(A.shape[0])
+    x, history = jacobi(A, b, tol=1e-8)
+    print(history.attrs["converged"], history.attrs["reason"])
+
+Jacobi needs about log(tol) / log(alpha) iterations on this system, so raise
+max_iter for alpha close to 1 (e.g. about 1833 for alpha = 0.99, tol = 1e-8).
 """
 
 import time
