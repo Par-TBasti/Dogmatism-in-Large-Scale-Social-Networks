@@ -1,5 +1,5 @@
 """
-HW3, Member 2 (Federico): stationary iterative solvers for A x = b, written
+HW3, Member 2: stationary iterative solvers for A x = b, written
 from scratch (Jacobi, Gauss-Seidel) with the stopping criteria of the course.
 
 Functions only, no top-level execution.

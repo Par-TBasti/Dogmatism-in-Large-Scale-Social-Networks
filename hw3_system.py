@@ -1,5 +1,5 @@
 """
-HW3, Member 2 (Federico): data loading and construction of the linear system
+HW3, Member 2: data loading and construction of the linear system
 (I - alpha W) x = (1 - alpha) s.
 
 Functions only, no top-level execution. Run from the repository root.
